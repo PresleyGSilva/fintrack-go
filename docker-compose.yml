@@ -1,0 +1,50 @@
+name: fintrack-go
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fintrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fintrack}
+      POSTGRES_DB: ${POSTGRES_DB:-fintrack}
+    ports:
+      - "${DB_PORT:-5437}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-fintrack}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://${POSTGRES_USER:-fintrack}:${POSTGRES_PASSWORD:-fintrack}@db:5432/${POSTGRES_DB:-fintrack}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-32-chars-minimum}
+      SEED_DEMO: ${SEED_DEMO:-true}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:3004,http://localhost:3000}
+    ports:
+      - "${API_PORT:-8084}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8084}
+    environment:
+      PORT: 3000
+    ports:
+      - "${WEB_PORT:-3004}:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

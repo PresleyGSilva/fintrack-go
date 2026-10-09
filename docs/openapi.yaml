@@ -1,0 +1,552 @@
+openapi: 3.0.3
+info:
+  title: FinTrack API
+  version: 1.0.0
+  description: |
+    FinTrack — controle financeiro pessoal. Dinheiro sempre em **cents (int64)**,
+    zero float. Envelopes: sucesso `{data:...}`, erro `{error:{code,message}}`.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: health
+  - name: auth
+  - name: accounts
+  - name: categories
+  - name: transactions
+  - name: transfers
+  - name: recurrences
+  - name: budgets
+  - name: goals
+  - name: reports
+  - name: import-export
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      security: []
+      summary: Health check
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+  /openapi.yaml:
+    get:
+      tags: [health]
+      security: []
+      summary: Esta especificação OpenAPI
+      responses:
+        '200':
+          description: yaml
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      security: []
+      summary: Registra usuário, cria org + membership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, maxLength: 120 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Login (rate-limit 10/min por IP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: ok + Set-Cookie refresh_token httpOnly, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { description: rate limited }
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      summary: Rotaciona refresh cookie e emite novo access
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      security: []
+      summary: Revoga refresh cookie
+      responses:
+        '200': { description: ok }
+  /api/v1/me:
+    get:
+      tags: [auth]
+      summary: Usuário atual + orgs
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/accounts:
+    get:
+      tags: [accounts]
+      summary: Lista contas
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+    post:
+      tags: [accounts]
+      summary: Cria conta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [checking, savings, cash, credit, investment, other], default: checking }
+                balance_cents: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '201': { description: created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/accounts/{id}:
+    get:
+      tags: [accounts]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [accounts]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [checking, savings, cash, credit, investment, other] }
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [accounts]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/categories:
+    get:
+      tags: [categories]
+      parameters:
+        - in: query
+          name: kind
+          schema: { type: string, enum: [income, expense] }
+      responses:
+        '200': { description: ok }
+    post:
+      tags: [categories]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kind]
+              properties:
+                name: { type: string }
+                kind: { type: string, enum: [income, expense] }
+                color: { type: string, default: '#6b7280' }
+      responses:
+        '201': { description: created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/categories/{id}:
+    get:
+      tags: [categories]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [categories]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                color: { type: string }
+      responses:
+        '200': { description: ok }
+    delete:
+      tags: [categories]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/transactions:
+    get:
+      tags: [transactions]
+      summary: Lista com filtros
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+        - in: query
+          name: kind
+          schema: { type: string, enum: [income, expense, transfer] }
+        - in: query
+          name: category_id
+          schema: { type: string }
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200': { description: ok }
+    post:
+      tags: [transactions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account_id, kind, amount_cents, date]
+              properties:
+                account_id: { type: string }
+                category_id: { type: string, nullable: true }
+                kind: { type: string, enum: [income, expense] }
+                amount_cents: { type: integer, exclusiveMinimum: 0 }
+                date: { type: string, format: date }
+                note: { type: string }
+                import_hash: { type: string, nullable: true }
+      responses:
+        '201': { description: created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/transactions/{id}:
+    get:
+      tags: [transactions]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [transactions]
+      summary: Atualiza note/date/category (saldo preservado)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id: { type: string, nullable: true }
+                date: { type: string, format: date }
+                note: { type: string }
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [transactions]
+      summary: Remove e reverte o saldo
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/transfers:
+    post:
+      tags: [transfers]
+      summary: Transferência atômica entre contas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_account_id, to_account_id, amount_cents]
+              properties:
+                from_account_id: { type: string }
+                to_account_id: { type: string }
+                amount_cents: { type: integer, exclusiveMinimum: 0 }
+                memo: { type: string }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '422': { description: insufficient funds }
+  /api/v1/recurrences:
+    get:
+      tags: [recurrences]
+      responses:
+        '200': { description: ok }
+    post:
+      tags: [recurrences]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account_id, kind, amount_cents, frequency, next_run]
+              properties:
+                account_id: { type: string }
+                category_id: { type: string, nullable: true }
+                kind: { type: string, enum: [income, expense] }
+                amount_cents: { type: integer, exclusiveMinimum: 0 }
+                frequency: { type: string, enum: [daily, weekly, monthly] }
+                next_run: { type: string, format: date }
+                active: { type: boolean, default: true }
+                note: { type: string }
+      responses:
+        '201': { description: created }
+  /api/v1/recurrences/{id}:
+    get:
+      tags: [recurrences]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [recurrences]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [recurrences]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/budgets:
+    get:
+      tags: [budgets]
+      responses:
+        '200': { description: ok }
+    post:
+      tags: [budgets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, month, limit_cents]
+              properties:
+                category_id: { type: string }
+                month: { type: string, example: '2026-10-01' }
+                limit_cents: { type: integer, exclusiveMinimum: 0 }
+      responses:
+        '201': { description: created }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/budgets/{id}:
+    get:
+      tags: [budgets]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [budgets]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [limit_cents]
+              properties:
+                limit_cents: { type: integer, exclusiveMinimum: 0 }
+      responses:
+        '200': { description: ok }
+    delete:
+      tags: [budgets]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/goals:
+    get:
+      tags: [goals]
+      responses:
+        '200': { description: ok }
+    post:
+      tags: [goals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, target_cents]
+              properties:
+                name: { type: string }
+                target_cents: { type: integer, exclusiveMinimum: 0 }
+                current_cents: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '201': { description: created }
+  /api/v1/goals/{id}:
+    get:
+      tags: [goals]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [goals]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+    delete:
+      tags: [goals]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: ok }
+  /api/v1/reports/summary:
+    get:
+      tags: [reports]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: '{income_cents, expense_cents, balance_cents, by_category[]}'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+  /api/v1/reports/monthly:
+    get:
+      tags: [reports]
+      parameters:
+        - in: query
+          name: year
+          schema: { type: integer, example: 2026 }
+      responses:
+        '200':
+          description: 12 pontos mensais
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+  /api/v1/import/csv:
+    post:
+      tags: [import-export]
+      summary: Importa CSV multipart (dedup por hash)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: '{inserted, skipped, errors}'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+  /api/v1/export/csv:
+    get:
+      tags: [import-export]
+      summary: Exporta transações em CSV
+      responses:
+        '200':
+          description: csv
+          content:
+            text/csv:
+              schema: { type: string }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string }
+    OrgId:
+      in: header
+      name: X-Org-ID
+      required: false
+      description: Org alvo; omitido usa a primeira org do usuário
+      schema: { type: string }
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        data: {}
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, INSUFFICIENT_FUNDS, CONFLICT, RATE_LIMITED]
+            message: { type: string }
+  responses:
+    ValidationError:
+      description: validação
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: não autorizado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: não encontrado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: conflito
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }

@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #0d9488;
+}
+
+body {
+  @apply bg-stone-100 text-stone-900 dark:bg-stone-950 dark:text-stone-100;
+}

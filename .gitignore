@@ -1,0 +1,6 @@
+.env
+web/node_modules/
+web/.next/
+web/out/
+*.log
+.DS_Store
